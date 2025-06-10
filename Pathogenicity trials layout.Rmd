@@ -1,0 +1,65 @@
+---
+title: "Pathogenicity trials layout"
+author: "Ihsan Khaliq"
+date: "2023-05-22"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Load libraries
+
+```{r}
+library("agricolae")
+library("tidyverse")
+library("desplot")
+library("here")
+library("readxl")
+```
+
+
+## RCBD
+
+```{r}
+trt <- c("Control", "F1", "F16", "F27", "F30", "F39", "F40", "F42")
+
+rep <- 7
+
+
+design.rcbd <- design.rcbd(trt, r = rep, seed = 42)
+
+openxlsx::write.xlsx(design.rcbd$book , "RCBD.xlsx", rowNames=FALSE)
+
+# draw sketch
+# Add Row and Col 
+ design.rcbd$bookRowCol <-  design.rcbd$book %>% 
+  mutate(Row = block %>% as.integer) %>% 
+  group_by(Row) %>% 
+  mutate(Col = 1:n()) %>% 
+  ungroup()
+
+# Plot field layout
+fig_1 <- desplot(trt ~ Row + Col, flip = TRUE,
+        text = trt, cex = 1, shorten = "no",
+        out1 = block,
+        data =  design.rcbd$bookRowCol,
+        main = "Randomized Complete Block Design", 
+        show.key = F, key.cex = 0.5)
+```
+
+
+## Plot trials layout
+
+```{r}
+png(here("man", "figures/fig_1.png"), width = 9, height = 9, units = "in", res = 600)
+print(fig_1)
+dev.off()
+```
+
+
+
+
+

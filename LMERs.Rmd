@@ -1,0 +1,687 @@
+---
+title: "Analysis"
+author: "Ahsan"
+date: "2023-06-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library("grDevices")
+library("tidyverse")
+library("viridis")
+library("showtext")
+library("here")
+library("ggpubr")
+library("extrafont")
+library("kableExtra")
+library("tidyr")
+library("lubridate")
+library("readxl")
+library("ggstatsplot")
+library("pairwiseComparisons")
+library("multcompView")
+library("ggthemes")
+library("emmeans")
+library("multcomp")
+library("car")
+library("DHARMa")
+library("lmerTest")
+library("grid")
+library("patchwork")
+library("gridExtra")
+library("agricolae")
+```
+
+
+## Set seed for reproducibility
+
+```{r}
+set.seed(42)
+```
+
+
+# Cotton
+
+## Import data
+
+```{r}
+dat <- read_excel("pathogenicity_trial_dat_fusarium.xlsx", sheet = 1) %>%
+  mutate(block = as.factor(block)) %>%
+  mutate(root_severity_cotton = as.integer(root_severity_cotton)) %>%
+  mutate(
+    range = case_when(
+      root_severity_cotton == 0 ~ "0",
+      root_severity_cotton == 1 ~ "1–9",
+      root_severity_cotton == 2 ~ "10–30",
+      root_severity_cotton == 3 ~ "31–50",
+      root_severity_cotton == 4 ~ "51–80",
+      root_severity_cotton == 5 ~ "81–100",
+      TRUE ~ NA_character_
+    ),
+    severity_midpoint = case_when(
+      root_severity_cotton == 0 ~ 0,
+      root_severity_cotton == 1 ~ 5,     # midpoint of 1–9
+      root_severity_cotton == 2 ~ 20,    # midpoint of 10–30
+      root_severity_cotton == 3 ~ 40.5,  # midpoint of 31–50
+      root_severity_cotton == 4 ~ 65.5,  # midpoint of 51–80
+      root_severity_cotton == 5 ~ 90.5,  # midpoint of 81–100
+      TRUE ~ NA_real_
+    ),
+    species = case_when(
+      isolate_code == "F1" ~ "F. incarnatum",
+      isolate_code == "F16" ~ "F. proliferatum",
+      isolate_code == "F27" ~ "F. clavum",
+      isolate_code == "F30" ~ "F. solani",
+      isolate_code == "F39" ~ "F. flocciferum",
+      isolate_code == "F40" ~ "F. equiseti",
+      isolate_code == "F42" ~ "F. verticillioides",
+      TRUE ~ "Control"
+    ),
+    severity_midpoint2 = severity_midpoint / 100, # convert to proportion
+    severity_midpoint3 = ifelse(severity_midpoint2 == 0, 0.001, severity_midpoint2)  # change 0 to 0.001 to make it suitable for beta regression
+  ) %>%
+   relocate(species, .after = isolate_code) %>%
+    mutate_if(is.character, as.factor)
+
+  # dplyr::group_by(assessment, treatment, block) %>%
+  # summarise(mean_severity_trt = mean(severity_mp),
+  #           sd_severity_trt = sd(severity_mp))
+```
+
+
+## Visualize data
+
+```{r}
+cotton_plot <- ggplot(dat, aes(x = fct_reorder(species, severity_midpoint, .fun =mean), y = severity_midpoint)) +
+  geom_boxplot(outlier.shape = NA, fill = "#91B493", alpha = 0.7, color = "black") +
+  geom_jitter( width = 0.2, size = 2, show.legend = FALSE) +
+  labs(
+    x = expression(italic("Fusarium") ~ "species"),
+    y = "Disease severity (midpoint %)"
+  ) +
+  scale_y_continuous(breaks = seq(0, 100, by = 25)) +
+  expand_limits(y = c(0, 100)) +
+  theme_pubclean(base_family = "Arial", base_size = 15) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, face = "bold") 
+  ) 
+  
+cotton_plot
+# "#bc3032"
+```
+
+
+## Run a linear model 
+
+```{r}
+m1 <- aov(severity_midpoint ~ species, data= dat)
+
+summary(m1)
+```
+
+
+## Check normality and homocedasticity tests
+
+```{r}
+plot(simulateResiduals(m1))
+```
+
+Since both normality and homoscedasticity assumptions are violated in our initial model, we will halt further analysis using this model. Instead, we will explore an alternative approach that includes data transformation to proportion data and then logit transformation. 
+
+## Apply transformation (proportion & logit)
+
+```{r, message=FALSE}
+m2 <- lmer(logit(severity_midpoint3) ~ species + (1 | block), data = dat)
+
+summary(m2)
+```
+
+
+## Check for normality and homocedasticity tests
+
+```{r}
+plot(simulateResiduals(m2))
+```
+
+Model is OK.
+
+## Plot model
+
+```{r}
+# Means comparison on the response (back-transformed scale)
+means_m2 <- emmeans(m2, "species", type = "response")
+
+# Compact Letter Display
+cld_df_cotton <- cld(means_m2, Letters = letters)
+
+# Prepare for plotting
+means_df_cotton <- as.data.frame(means_m2) %>%
+    arrange(desc(response))
+
+# Make sure species levels match for consistent ordering
+cld_df_cotton$species <- factor(cld_df_cotton$species, levels = levels(means_df_cotton$species))
+
+# Merge CLD letters with emmeans results
+plot_df_cotton <- left_join(means_df_cotton, cld_df_cotton[, c("species", ".group")], by = "species")
+
+# Display p values
+pairs(means_m2)
+
+# Clean up group letters: remove whitespace
+plot_df_cotton <- plot_df_cotton %>%
+  mutate(.group = gsub(" ", "", .group), # remove spaces
+         label_y = upper.CL + 0.03)        # position letters just above error bar
+
+
+cotton_model_plot <- ggplot(plot_df_cotton, aes(x = reorder(species, response), y = response)) +
+  geom_point(size = 3, color = "#0072B2") +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.15, color = "#0072B2") +
+  geom_text(aes(y = label_y, label = .group), size = 5, color = "black") +
+  labs(
+    x = expression(italic("Fusarium") ~ "species"),
+    y = "Disease severity (proportion)"
+  ) +
+  theme_pubclean(base_family = "Arial", base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+   ylim(0, 1)
+
+cotton_model_plot
+
+# # Fixed effect summary
+# coefs <- summary(m2)$coefficients %>%
+#   as.data.frame() %>%
+#   mutate(term = rownames(.)) %>%
+#   #filter(term != "(Intercept)") %>%
+#   mutate(
+#     species = gsub("species", "", term),
+#     logit_mean = Estimate + summary(m2)$coefficients["(Intercept)", "Estimate"],
+#     lower.CL = logit_mean - 1.96 * `Std. Error`,
+#     upper.CL = logit_mean + 1.96 * `Std. Error`,
+#     sig = case_when(
+#       `Pr(>|t|)` < 0.05 ~ "*",
+#       `Pr(>|t|)` < 0.1 ~ ".",
+#       TRUE ~ ""
+#     )
+#   )
+# # rename intercept to control 
+# coefs$species <- fct_recode(coefs$species, "Control" = "(Intercept)")
+# 
+# # Convert to probability scale
+# logit_to_prob <- function(x) exp(x) / (1 + exp(x))
+# 
+# coefs <- coefs %>%
+#   mutate(
+#     prob_mean = logit_to_prob(logit_mean),
+#     prob_lower = logit_to_prob(lower.CL),
+#     prob_upper = logit_to_prob(upper.CL)
+#   )
+# 
+# # Assign group letters (you can automate this too, but keeping your manual logic here)
+# coefs$group <- "a"
+# coefs$group[coefs$species == "F. proliferatum"] <- "b"
+# coefs$group[coefs$species  == "F. flocciferum"] <- "b"
+# 
+# # Add a y-position just above the upper confidence interval
+# coefs <- coefs %>%
+#   mutate(label_y = prob_upper + 0.03)  
+# 
+# 
+# Plot on probability scale
+# cotton_model_plot <- ggplot(coefs, aes(x = reorder(species, prob_mean), y = prob_mean)) +
+#   geom_point(size = 3, color = "#0072B2") +
+#   geom_errorbar(aes(ymin = prob_lower, ymax = prob_upper), width = 0.15, color = "#0072B2") +
+#   geom_text(aes(y = label_y, label = group), size = 6, fontface = "bold") +
+#   labs(
+#     x = expression(italic("Fusarium") ~ "species"),
+#     y = "Disease severity (proportion)"
+#   ) +
+#   theme_pubclean(base_family = "Arial", base_size = 12) +
+#   theme(
+#     axis.text.x = element_text(angle = 45, hjust = 1),
+#   ) +
+#   ylim(0, 1)
+# 
+# cotton_model_plot
+
+```
+
+
+# Corn
+
+## Import data
+
+```{r}
+dat_corn <- read_excel("pathogenicity_trial_dat_fusarium.xlsx", sheet = 2) %>%
+  mutate(block = as.factor(block)) %>%
+  mutate(root_severity_corn = as.integer(root_severity_corn)) %>%
+  mutate(
+    corn_range = case_when(
+      root_severity_corn == 1 ~ "0",
+      root_severity_corn == 2 ~ "1–9",
+      root_severity_corn == 3 ~ "10–20",
+      root_severity_corn == 4 ~ "21–40",
+      TRUE ~ NA_character_
+    ),
+    corn_severity_midpoint = case_when(
+      root_severity_corn == 1 ~ 0,
+      root_severity_corn == 2 ~ 5,     # midpoint of 1–9
+      root_severity_corn == 3 ~ 15,    # midpoint of 10–20
+      root_severity_corn == 4 ~ 30.5,  # midpoint of 20–40
+      TRUE ~ NA_real_
+    ),
+    species = case_when(
+      isolate_code == "F1" ~ "F. incarnatum",
+      isolate_code == "F16" ~ "F. proliferatum",
+      isolate_code == "F27" ~ "F. clavum",
+      isolate_code == "F30" ~ "F. solani",
+      isolate_code == "F39" ~ "F. flocciferum",
+      isolate_code == "F40" ~ "F. equiseti",
+      isolate_code == "F42" ~ "F. verticillioides",
+      TRUE ~ "Control"
+    ),
+    corn_severity_midpoint2 = corn_severity_midpoint / 100, # convert to proportion
+    corn_severity_midpoint3 = ifelse(corn_severity_midpoint2 == 0, 0.001, corn_severity_midpoint2)  # change 0 to 0.001 to make it suitable for beta regression
+  ) %>%
+   relocate(species, .after = isolate_code) %>%
+    mutate_if(is.character, as.factor)
+```
+
+
+## Visualize corn pathogenicity data
+
+```{r}
+corn_plot <- ggplot(dat_corn, aes(x = fct_reorder(species, corn_severity_midpoint, .fun =mean), y = corn_severity_midpoint)) +
+  geom_boxplot(outlier.shape = NA, fill = "#91B493", alpha = 0.7, color = "black") +
+  geom_jitter( width = 0.2, size = 2, show.legend = FALSE) +
+  labs(
+    x = expression(italic("Fusarium") ~ "species"),
+    y = "Disease severity (midpoint %)"
+  ) +
+  scale_y_continuous(breaks = seq(0, 100, by = 25)) +
+  expand_limits(y = c(0, 100)) +
+  theme_pubclean(base_family = "Arial", base_size = 15) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5, face = "bold") 
+  ) 
+  
+corn_plot
+# "#bc3032"
+```
+
+
+## Run a linear model 
+
+```{r}
+m1_corn <- aov(root_severity_corn ~ species, data= dat_corn)
+
+summary(m1_corn)
+```
+
+
+## Check for normality and homocedasticity tests
+
+```{r}
+plot(simulateResiduals(m1_corn))
+```
+
+Diagnostics test suggest that a simple linear model can be used.
+
+
+## Apply transformation (proportion & logit)
+
+```{r}
+m2_corn <- lmer(logit(corn_severity_midpoint3) ~ species + (1 | block), data = dat_corn)
+
+summary(m2_corn)
+```
+
+Both models meet the assumptions, we will go with m2_corn to account for the random effect of block.
+
+## Check for normality and homocedasticity tests
+
+```{r}
+plot(simulateResiduals(m2_corn))
+```
+
+
+## Plot model using emmeans R package 
+
+Both assumptions have been met. We can proceed to use a means comparison test to determine which treatments differ from one another, with the assistance of the `emmeans` package. It’s important to note that the results are displayed in the original scale after transformation, specifically when using type = "response".
+
+### Means comparison
+
+```{r}
+# Means comparison on the response (back-transformed scale)
+means_m2_corn <- emmeans(m2_corn, "species", type = "response")
+
+# Compact Letter Display
+cld_df_corn <- cld(means_m2_corn, Letters = letters)
+
+# Prepare for plotting
+means_df_corn <- as.data.frame(means_m2_corn) %>%
+  arrange(desc(response))
+
+# Make sure species levels match for consistent ordering
+cld_df_corn$species <- factor(cld_df_corn$species, levels = levels(means_df_corn$species))
+
+# Merge CLD letters with emmeans results
+plot_df_corn <- left_join(means_df_corn, cld_df_corn[, c("species", ".group")], by = "species")
+```
+
+
+### Plot corn pathogenicity trial
+
+```{r}
+# Clean up group letters: remove whitespace
+plot_df_corn <- plot_df_corn %>%
+  mutate(
+    response = ifelse(species == "F. solani", response + 0.001, response), # added .001 to soani to ensure control is dispalyed at the left most side.
+    .group = gsub(" ", "", .group),  # remove spaces
+    label_y = upper.CL + 0.05        # position letters just above error bar
+  )
+
+# Plot
+corn_model_plot <- ggplot(plot_df_corn, aes(x = reorder(species, response), y = response)) +
+  geom_point(size = 3, color = "#0072B2") +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.15, color = "#0072B2") +
+  geom_text(aes(y = label_y, label = .group), size = 5, color = "black") +
+  labs(
+    x = expression(italic("Fusarium") ~ "species"),
+    y = "Disease severity (proportion)"
+  ) +
+  theme_pubclean(base_family = "Arial", base_size = 12) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+   ylim(0, 1)
+
+corn_model_plot
+```
+
+
+## Combine cotton & corn model plots
+
+```{r}
+# Cotton plot
+cotton_model_plot <- ggplot(plot_df_cotton, aes(x = reorder(species, response), y = response)) +
+  geom_point(size = 3, color = "#E69F00") +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.15, color = "#E69F00") +
+  geom_text(aes(y = label_y, label = .group), size = 5, color = "black") +
+  labs(
+    x = "",
+    y = ""
+  ) +
+  theme_pubclean(base_family = "Arial", base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+   ylim(0, 1)
+
+
+# Corn plot
+corn_model_plot <- ggplot(plot_df_corn, aes(x = reorder(species, response), y = response)) +
+  geom_point(size = 3, color = "#E69F00") +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.15, color = "#E69F00") +
+  geom_text(aes(y = label_y, label = .group), size = 5, color = "black") +
+  labs(
+    x = "",
+    y = ""
+  ) +
+  theme_pubclean(base_family = "Arial", base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+   ylim(0, 1)
+
+# Add annotations to each individual plot
+cotton_model_plot <- cotton_model_plot + 
+  plot_annotation(tag_levels = 'A') +
+  theme(plot.tag = element_text(size = 15, face = "bold", family = "Arial"))
+
+corn_model_plot <- corn_model_plot + 
+  plot_annotation(tag_levels = 'B') +
+  theme(plot.tag = element_text(size = 15, face = "bold", family = "Arial"))
+
+# Shared x-axis label (text)
+shared_x <- textGrob(
+  label = expression(italic("Fusarium") ~ "species"),
+  gp = gpar(fontsize = 14, fontfamily = "Arial"),
+  hjust = 0.5,
+  x = 0.5
+)
+
+# Shared y-axis label (text)
+shared_y <- textGrob(
+  "Disease severity (proportion)",
+  gp = gpar(fontsize = 14, fontfamily = "Arial"),
+  rot = 90,
+  hjust = 0.5,
+  vjust = 0.5
+)
+
+# Combine the plots and shared axis labels
+combined_modelling_plot <- cotton_model_plot + corn_model_plot +
+  plot_layout(ncol = 2) +
+  plot_annotation(tag_levels = 'A') &
+  theme(plot.tag = element_text(
+    size = 15,
+    face = "bold",
+    family = "Arial"
+  ))
+
+
+# Convert the combined plot to a grob
+combined_grob <- patchworkGrob(combined_modelling_plot)
+
+# Use grid.arrange to add shared x and y labels
+Figure_5 <- grid.arrange(
+  combined_grob, 
+  left = shared_y,  # Left y-axis label
+  bottom = shared_x  # Bottom x-axis label
+)
+
+Figure_5
+```
+
+
+
+```{r}
+ggsave(
+  here("man", "figures/Figure_5.eps"),
+  plot = Figure_5,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 600,
+device = cairo_ps
+)
+
+
+png("Figure_5.png", width = 8, height = 6, units = "in", res = 600)
+grid.arrange(
+    combined_grob, 
+    left = shared_y,
+    bottom = shared_x
+)
+dev.off()
+```
+
+
+## Cotton aerial parts severity
+
+### Import data
+
+```{r}
+dat_aerial <- read_excel("pathogenicity_trial_dat_fusarium.xlsx", sheet = 3) %>%
+  mutate(block = as.factor(block)) %>%
+  mutate(severity = as.integer(severity)) %>%
+  mutate(species = case_when(
+    isolate_code  == "F1" ~ "F. incarnatum",
+    isolate_code  == "F16" ~ "F. proliferatum",
+    isolate_code  == "F27" ~ "F. clavum",
+    isolate_code  == "F30" ~ "F. solani",
+    isolate_code  == "F39" ~ "F. flocciferum",
+    isolate_code  == "F40" ~ "F. equiseti",
+    isolate_code == "F42" ~ "F. verticillioides",
+    TRUE ~ "Control"
+  )) %>%
+  relocate(species, .after = isolate_code) %>%
+  mutate_if(is.character, as.factor)
+```
+
+
+## Calculate the area under the disase progress stairs (AUDPS)
+
+```{r}
+dat_aerial2 <- dat_aerial %>%
+  mutate(julian_day = yday(assessment_date)) %>%
+ group_by(species, julian_day) %>%
+  summarise(mean_severity = mean(severity), .groups = "drop")
+
+audps_dat <- dat_aerial2 %>%
+  group_by(species) %>%
+  summarise(AUDPS = audps(mean_severity, julian_day), .groups = "drop") %>%
+  arrange(AUDPS)
+
+
+#openxlsx::write.xlsx(audps_dat, "ms-table_audps.xlsx")
+```
+
+
+## Plot AUDPS
+
+```{r}
+# Create a named vector of expression labels to italicize species
+species_labels <- c(
+  "Control" = "Control",
+  "F. verticillioides" = expression(italic("F. verticillioides")),
+  "F. clavum" = expression(italic("F. clavum")),
+  "F. flocciferum" = expression(italic("F. flocciferum")),
+  "F. equiseti" = expression(italic("F. equiseti")),
+  "F. proliferatum" = expression(italic("F. proliferatum")),
+  "F. solani" = expression(italic("F. solani")),
+  "F. incarnatum" = expression(italic("F. incarnatum"))
+)
+
+audps_plot <- ggplot(audps_dat, aes(x = reorder(species, AUDPS), y = AUDPS)) +
+    geom_col(fill = "#1f78b4") +
+    coord_flip() +
+    scale_x_discrete(labels = species_labels) +  
+    labs(x = expression(italic("Fusarium") ~ "species"), y = "Disease severity (AUDPS)") +
+    theme_pubclean(base_family = "Arial", base_size = 14)
+  
+  audps_plot
+```
+
+
+## Analyze the area under the disease progress curve
+
+```{r}
+# Calculate AUDPS by block
+audps_dat2 <- dat_aerial %>%
+  mutate(julian_day = yday(assessment_date)) %>%
+  group_by(species, block, julian_day) %>%
+  summarise(mean_severity = mean(severity), .groups = "drop") %>%
+  group_by(species, block) %>%
+  summarise(AUDPS = audps(mean_severity, julian_day), .groups = "drop")
+
+#openxlsx::write.xlsx(audps_dat2, "ms-table_audps2.xlsx")
+```
+
+
+## Fit model 
+
+```{r}
+m2_c_aerial <- lmer(AUDPS ~ species + (1 | block), data = audps_dat2)
+
+summary(m2_c_aerial)
+```
+
+## Check for normality and homocedasticity tests
+
+```{r}
+plot(simulateResiduals(m2_c_aerial))
+```
+
+
+## Get estimated means and then plot model 
+
+```{r}
+# Means comparison on the response
+means_m_c_aerial <- emmeans(m2_c_aerial, "species")
+
+# Compact Letter Display
+cld_df_m_c <- cld(means_m_c_aerial, Letters = letters)
+
+# Prepare for plotting
+means_df_m_c <- as.data.frame(means_m_c_aerial) %>%
+  arrange(desc(emmean))
+
+# Make sure species levels match for consistent ordering
+cld_df_m_c$species <- factor(cld_df_m_c$species, levels = levels(means_df_m_c$species))
+
+
+# Drop all columns from cld_df_m_c *except* species and .group
+plot_df_m_c <- left_join(means_df_m_c, cld_df_m_c[, c("species", ".group")], by = "species")
+
+
+# Clean up group letters: remove whitespace
+plot_df_m_c2 <- plot_df_m_c %>%
+  mutate(.group = gsub(" ", "", .group), # remove spaces
+         label_y = upper.CL + 0.03)        # position letters just above error bar
+
+
+mc_model_plot <- ggplot(plot_df_m_c2, aes(x = reorder(species, emmean), y = emmean)) +
+    geom_point(size = 3, color = "#0072B2") +
+    geom_errorbar(aes(
+        ymin = pmax(lower.CL, 0),  # Prevent error bar from going below zero
+        ymax = upper.CL
+    ), width = 0.15, color = "#0072B2") +
+    geom_text(aes(y = label_y + 2, label = .group), size = 5, color = "black") +  # Added space here
+    labs(
+        x = expression(italic("Fusarium") ~ "species"),
+        y = "Disease severity (AUDPS)"
+    ) +
+    theme_pubclean(base_family = "Arial", base_size = 14) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    coord_cartesian(ylim = c(0, 45))
+
+mc_model_plot
+```
+
+### Cobmine aerial pathogenecity plots
+
+```{r}
+Figure_4 <- audps_plot + mc_model_plot +
+  plot_layout(ncol = 2) +
+  plot_annotation(tag_levels = 'A') &
+  theme(plot.tag = element_text(
+    size = 15,
+    face = "bold",
+    family = "Arial"
+  ))
+
+Figure_4
+```
+
+
+
+```{r}
+ggsave(
+  here("man", "figures/Figure_4.eps"),
+  plot =  Figure_4,
+  width = 9,
+  height = 5,
+  units = "in",
+  dpi = 600,
+  device = cairo_ps
+)
+
+ggsave(
+  here("man", "figures/Figure_4.png"),
+  plot =  Figure_4,
+  width = 9,
+  height = 4.5,
+  units = "in",
+  dpi = 600
+)
+```
+
+
+

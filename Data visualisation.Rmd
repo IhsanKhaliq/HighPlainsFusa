@@ -1,0 +1,536 @@
+---
+title: "Data visualisatin"
+author: "Ahsan"
+date: "2023-06-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library("grDevices")
+library("tidyverse")
+library("viridis")
+library("showtext")
+library("here")
+library("ggpubr")
+library("extrafont")
+library("kableExtra")
+library("tidyr")
+library("lubridate")
+library("readxl")
+library("ggstatsplot")
+library("pairwiseComparisons")
+library("multcompView")
+library("ggthemes")
+library("emmeans")
+library("multcomp")
+library("car")
+library("DHARMa")
+library("lmerTest")
+library("grid")
+library("patchwork")
+library("gridExtra")
+library("sf")
+library("rnaturalearth")
+library("leaflet")
+library("plotly")
+library("leaflet.extras")
+library("htmltools")
+library("htmlwidgets")
+library("ggmap")
+library("osmdata")
+library("tmap")
+library("ggspatial")
+```
+
+
+
+```{r fonts, include=FALSE, message=FALSE, eval=FALSE, message=FALSE}
+# Note that GhostScript needs to be installed at the system level for the PS files to be generated.
+# MacOS users can use `brew install ghostscript`
+# 
+# Windows users can follow these directions:
+# 1.	Go to the GhostScript website (https://www.ghostscript.com/download/gsdnld.html)
+# 2.	Download the windows installer suitable for your machine
+# 3.	Run the installer file which you downloaded and follow the prompts
+# 4.	After running the installer click the windows "Start" button and type "Edit environment variables for your account" and open
+# 5.	In the tab 'Advanced' click the button at the bottom 'Environment Variables...'
+# 6.	Under 'System variables' find the variable 'Path', select 'Path' and click the 'Edit' button
+# 7. 	Select a new line and copy the Ghostscript 'bin' folder location into the field.
+# 7.1	If you installed ghostscript to the default folder location; then the folder location will likely be "C:\Program Files\gs\gs9.52\bin", the version number (9.52) may differ.
+# 8.	Save and exit the environmental variables window
+# This chunk is then run only if knitting on new computer that the files have not been generated on
+# this is necessary to embed fonts in .eps files 
+library("extrafont")
+if (.Platform$OS.type == "windows") {
+   font_import(pattern = "arial", prompt = FALSE)
+   loadfonts(device = "postscript", quiet = TRUE)
+} else {
+   font_import(pattern = "Arial", prompt = FALSE)
+   loadfonts(device = "postscript", quiet = TRUE)
+}
+
+extrafont::font_import()
+```
+
+
+## Set seed for reproducibility
+
+```{r}
+set.seed(42)
+```
+
+
+## Import cotton pathogenecity trial data
+
+```{r}
+dat_cotton <- read_excel("pathogenicity_trial_dat_fusarium.xlsx", sheet = 1) %>%
+  mutate(crop = "cotton") %>%
+  mutate(block = as.factor(block)) %>%
+  mutate(root_severity_cotton = as.integer(root_severity_cotton)) %>%
+  mutate(
+    range = case_when(
+      crop == "cotton" & root_severity_cotton == 0 ~ "0",
+      crop == "cotton" & root_severity_cotton == 1 ~ "1–9",
+      crop == "cotton" & root_severity_cotton == 2 ~ "10–30",
+      crop == "cotton" & root_severity_cotton == 3 ~ "31–50",
+        crop == "cotton" & root_severity_cotton == 4 ~ "51–80",
+        crop == "cotton" & root_severity_cotton == 5 ~ "81–100",
+      TRUE ~ NA_character_
+    ),
+    severity_midpoint = case_when(
+        crop == "cotton" & root_severity_cotton == 0 ~ 0,
+        crop == "cotton" & root_severity_cotton == 1 ~ 5,     # midpoint of 1–9
+        crop == "cotton" & root_severity_cotton == 2 ~ 20,    # midpoint of 10–30
+        crop == "cotton" & root_severity_cotton == 3 ~ 40.5,  # midpoint of 31–50
+        crop == "cotton" & root_severity_cotton == 4 ~ 65.5,  # midpoint of 51–80
+        crop == "cotton" & root_severity_cotton == 5 ~ 90.5,  # midpoint of 81–100
+      TRUE ~ NA_real_
+    ),
+    species = case_when(
+        crop == "cotton" & isolate_code == "F1" ~ "F. incarnatum",
+        crop == "cotton" & isolate_code == "F16" ~ "F. proliferatum",
+        crop == "cotton" & isolate_code == "F27" ~ "F. clavum",
+        crop == "cotton" & isolate_code == "F30" ~ "F. solani",
+        crop == "cotton" & isolate_code == "F39" ~ "F. flocciferum",
+        crop == "cotton" & isolate_code == "F40" ~ "F. equiseti",
+        crop == "cotton" & isolate_code == "F42" ~ "F. verticillioides",
+      TRUE ~ "Control"
+    ),
+    severity_midpoint2 = severity_midpoint / 100, # convert to proportion
+    severity_midpoint3 = ifelse(severity_midpoint2 == 0, 0.001, severity_midpoint2)  # change 0 to 0.001 to make it suitable for beta regression
+  ) %>%
+  rename(root_severity = root_severity_cotton) %>%
+   relocate(species, .after = isolate_code) %>%
+    mutate_if(is.character, as.factor) 
+```
+
+
+## Import corn pathogenicty data
+
+```{r}
+dat_corn <- read_excel("pathogenicity_trial_dat_fusarium.xlsx", sheet = 2) %>%
+  mutate(crop = "corn") %>%
+  mutate(block = as.factor(block)) %>%
+  mutate(root_severity_corn = as.integer(root_severity_corn)) %>%
+  mutate(
+      range = case_when(
+      crop == "corn" & root_severity_corn == 1 ~ "0",
+      crop == "corn" & root_severity_corn == 2 ~ "1–9",
+      crop == "corn" & root_severity_corn == 3 ~ "10–20",
+      crop == "corn" & root_severity_corn == 4 ~ "21–40",
+      TRUE ~ NA_character_
+    ),
+      severity_midpoint = case_when(
+       crop == "corn" & root_severity_corn == 1 ~ 0,
+       crop == "corn" & root_severity_corn == 2 ~ 5,     # midpoint of 1–9
+       crop == "corn" & root_severity_corn == 3 ~ 15,    # midpoint of 10–20
+       crop == "corn" & root_severity_corn == 4 ~ 30.5,  # midpoint of 20–40
+      TRUE ~ NA_real_
+    ),
+    species = case_when(
+       crop == "corn" & isolate_code == "F1" ~ "F. incarnatum",
+       crop == "corn" & isolate_code == "F16" ~ "F. proliferatum",
+       crop == "corn" & isolate_code == "F27" ~ "F. clavum",
+       crop == "corn" & isolate_code == "F30" ~ "F. solani",
+       crop == "corn" & isolate_code == "F39" ~ "F. flocciferum",
+       crop == "corn" & isolate_code == "F40" ~ "F. equiseti",
+       crop == "corn" & isolate_code == "F42" ~ "F. verticillioides",
+      TRUE ~ "Control"
+    ),
+    severity_midpoint2 = severity_midpoint / 100, # convert to proportion
+    severity_midpoint3 = ifelse(severity_midpoint2 == 0, 0.001, severity_midpoint2)  # change 0 to 0.001 to make it suitable for beta regression
+  ) %>%
+   relocate(species, .after = isolate_code) %>%
+  rename(root_severity = root_severity_corn) %>%
+    mutate_if(is.character, as.factor)
+```
+
+
+## Combine corn & cotton pathogenecity data
+
+```{r}
+dat_all <- bind_rows(dat_cotton, dat_corn) 
+
+# Table for the ms
+dat_table <- dat_all %>%
+  group_by(crop, species) %>%
+  summarise(mean_severity = mean(severity_midpoint2))
+
+#openxlsx::write.xlsx(dat_table, "ms-table-root_severity.xlsx")
+```
+
+
+## Visualise cotton & corn pathogenicity 
+
+
+```{r}
+# Summarize by species and crop, converting to proportion
+summary_data <- dat_all %>%
+  group_by(species, crop) %>%
+  summarise(
+    mean_severity = mean(severity_midpoint, na.rm = TRUE) / 100,
+    se = sd(severity_midpoint, na.rm = TRUE) / sqrt(n()) / 100
+  )
+
+# Plot
+pathogenicity_plot <- ggplot(summary_data, aes(x = species, y = mean_severity, color = crop, group = crop)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +
+  geom_errorbar(
+    aes(ymin = mean_severity - se, ymax = mean_severity + se),
+    width = 0.2,
+    position = position_dodge(width = 0.5)
+  ) +
+  labs(
+    x = expression(italic("Fusarium") ~ "species"),
+    y = "Mean disease severity (proportion)",
+    color = "Crop"
+  ) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = c(0, 0.20, 0.40, 0.60, 0.80, 1.0),
+    labels = scales::number_format(accuracy = 0.01)
+  ) +
+  theme_pubclean(base_family = "Arial", base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank()
+  ) +
+  scale_color_brewer(palette = "Set1")
+
+pathogenicity_plot
+```
+
+
+```{r}
+ggsave(
+  here("man", "figures/pathogenicity_plot.eps"),
+  plot = pathogenicity_plot,
+  width = 7,
+  height = 7,
+  units = "in",
+  dpi = 600,
+  dev.off()
+)
+
+
+ggsave(
+  here("man", "figures/pathogenicity_plot.png"),
+  plot = pathogenicity_plot,
+  width = 7,
+  height = 7,
+  units = "in",
+  dpi = 600
+)
+```
+
+
+### Bar chart
+
+```{r}
+# Reorder species by total mean_severity
+summary_data2 <- summary_data %>%
+  group_by(species) %>%
+  mutate(total_mean_severity = sum(mean_severity)) %>%
+  ungroup() %>%
+  mutate(species = fct_reorder(species, total_mean_severity))
+
+# Now plot with reordered species
+stacked_bar_plot <- ggplot(summary_data2, aes(x = species, y = mean_severity, fill = crop)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(
+    x = expression(italic("Fusarium") ~ "species"),
+    y = "Mean midpoint disease everity (proportion)",
+    fill = "Crop"
+  ) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = c(0, 0.20, 0.40, 0.60, 0.80, 1.0),
+    labels = scales::number_format(accuracy = 0.01)
+  ) +
+  theme_pubclean(base_family = "Arial", base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank()
+  ) +
+  scale_fill_viridis_d(option = "cividis")
+
+stacked_bar_plot
+
+```
+
+
+```{r}
+ggsave(
+    here("man", "figures/stacked_bar_plot.png"),
+    plot = stacked_bar_plot,
+    width = 6,
+    height = 6,
+    units = "in",
+    dpi = 600
+)
+```
+
+
+### Donut-chart
+
+```{r}
+dat_pie <- read_excel("survey_dat.xlsx", sheet = 1) %>%
+  mutate(species = as.factor(species), count = as.integer(count))
+
+
+# Compute position and labels
+dat_pie <- dat_pie %>%
+  arrange(desc(species)) %>%
+  mutate(
+    ypos = cumsum(percent) - 0.5 * percent,
+    angle = 90 - (ypos / 100) * 360,
+    hjust = ifelse(angle < -90, 1, 0),
+    angle = ifelse(angle < -90, angle + 180, angle),
+    label = paste0(species, " (", round(percent), "%)")
+  )
+
+# Donut chart using RColorBrewer Set3 palette
+donut_chart <- ggplot(dat_pie, aes(x = 2, y = percent, fill = species)) +
+  geom_bar(stat = "identity",
+           width = 1,
+           color = "white") +
+  coord_polar(theta = "y") +
+  xlim(0.5, 2.6) +
+  scale_fill_brewer(palette = "Paired") + 
+  theme_pubclean(base_family = "Arial", base_size = 14) +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.title = element_blank(),
+    axis.text = element_blank(),
+    axis.ticks = element_blank()
+  ) +
+  geom_text(aes(
+    x = 1.6,
+    y = ypos,
+    label = label,
+    angle = angle,
+    hjust = hjust
+  ),
+  size = 3.2) 
+  
+  donut_chart
+```
+
+
+```{r}
+ggsave(
+  here("man", "figures/donut_chart.eps"),
+  plot =   donut_chart,
+  width = 7,
+  height = 7,
+  units = "in",
+  dpi = 600
+)
+
+ggsave(
+  here("man", "figures/donut_chart.png"),
+  plot =   donut_chart,
+  width = 7,
+  height = 7,
+  units = "in",
+  dpi = 600
+)
+```
+
+
+
+### Combine bar plot & donut chart
+
+
+### Cobmine aerial pathogenecity plots
+
+```{r}
+Figure_2 <- donut_chart + stacked_bar_plot +
+    plot_layout(ncol = 2) +
+    plot_annotation(tag_levels = 'A') &
+    theme(plot.tag = element_text(
+        size = 15,
+        face = "bold",
+        family = "Arial"
+    ))
+
+Figure_2 
+```
+
+
+```{r}
+ggsave(
+    here("man", "figures/Figure_2.png"),
+    plot = Figure_2,
+    width = 10,
+    height = 7,
+    units = "in",
+    dpi = 600
+)
+
+ggsave(
+  here("man", "figures/Figure_2.eps"),
+  plot = Figure_2,
+  width = 10,
+  height = 7,
+  units = "in",
+  dpi = 600,
+device = cairo_ps
+)
+
+```
+
+
+
+### Import lat-long information of the fields sampled
+
+```{r}
+# Import survey data
+survey_dat <- read_excel("survey_dat.xlsx", sheet = 3) %>%
+    mutate(
+    lat = as.numeric(sapply(strsplit(as.character(lat_long), ","), `[`, 1)),
+    long = as.numeric(sapply(strsplit(as.character(lat_long), ","), `[`, 2))
+  ) %>%
+  mutate(across(where(is.character), as.factor)) %>%
+  group_by(county, sampling_date) %>%
+  mutate(fields_sampled = n_distinct(county_code)) %>%
+  ungroup()
+```
+
+
+## Add polygons
+
+```{r}
+# Read counties shape file
+counties_dat <- st_read("c_05mr24.shp") %>%
+  filter(STATE=="TX") %>%
+  select(-c(LON, LAT))
+
+# List counties sampled in our project
+texas_counties <- c("Randall", "Hartley", "Hansford", "Moore", "Sherman", 
+                    "Potter", "Hutchinson", "Dallam", "Deaf Smith", "Carson")
+
+
+
+# Filter the shapefile for the sampled counties
+texas_shapefile <- counties_dat %>% 
+  filter(COUNTYNAME %in% texas_counties)
+
+
+# Merge your survey data with the shapefile data for visualisation
+merged_data <- left_join(texas_shapefile, survey_dat, by = c("COUNTYNAME" = "county"))
+
+# Reproject the spatial data from NAD83 to WGS84 for visualisation
+merged_data <- st_transform(merged_data, crs = 4326)
+
+```
+
+### Sampled counties in Texas High Plains
+
+```{r}
+showtext_auto()
+
+# Read and project to Texas Albers Equal Area
+counties_dat <- st_read("c_05mr24.shp") %>%
+  filter(STATE == "TX") %>%
+  st_transform(crs = 3083)  # NAD83 / Texas Centric Albers Equal Area
+
+# Northern High Plains counties
+northern_high_plains <- c(
+  "Armstrong", "Briscoe", "Carson", "Collingsworth", "Dallam", "Deaf Smith",
+  "Donley", "Gray", "Hall", "Hansford", "Hartley", "Hemphill", "Hutchinson",
+  "Lipscomb", "Moore", "Ochiltree", "Oldham", "Potter", "Randall", "Roberts",
+  "Sherman", "Wheeler"
+)
+
+# Sampled counties
+sampled_counties <- c("Randall", "Hartley", "Hansford", "Moore", "Sherman", 
+                      "Potter", "Hutchinson", "Dallam", "Deaf Smith", "Carson")
+
+# Filter and annotate sampled counties
+north_hp_map <- counties_dat %>%
+  filter(COUNTYNAME %in% northern_high_plains) %>%
+  mutate(sampled = ifelse(COUNTYNAME %in% sampled_counties, "Sampled", "Not Sampled")) %>%
+    mutate_if(is.character, as.factor)
+
+# Get label points for counties
+label_points <- st_point_on_surface(north_hp_map)
+
+# Create map
+sampling_area_plot <- ggplot(data = north_hp_map) +
+    geom_sf(aes(fill = sampled), color = "black", size = 0.2) +
+    geom_sf_text(data = label_points, aes(label = COUNTYNAME), size = 2.5) +
+    scale_fill_manual(
+        values = c("Sampled" = "#0072B2", "Not Sampled" = "#D55E00"),
+        labels = c("Sampled", "Not Sampled"),
+        name = "Counties"
+    ) +
+    annotation_scale(location = "bl", width_hint = 0.3, text_cex = 0.7, line_width = 0.3) +
+    annotation_north_arrow(
+        location = "tr", which_north = "true",
+        pad_x = unit(0, "cm"), pad_y = unit(0, "cm"),
+        style = north_arrow_fancy_orienteering
+    ) +
+    coord_sf(
+        crs = st_crs(3083),
+        datum = st_crs(4326),
+        label_graticule = "SW",
+        xlim = c(st_bbox(north_hp_map)[["xmin"]], st_bbox(north_hp_map)[["xmax"]]),
+        ylim = c(st_bbox(north_hp_map)[["ymin"]], st_bbox(north_hp_map)[["ymax"]])
+    ) +
+    theme_pubclean(base_size = 15) +
+    theme(
+        legend.position = "bottom",
+        axis.title = element_blank(),
+        axis.text = element_text(size = 8),
+        axis.ticks = element_line(size = 0.3)
+        # panel.grid.major = element_line(color = "gray80", size = 0.2)
+    )
+
+sampling_area_plot
+
+```
+
+
+
+
+```{r}
+ggsave(
+  here("man", "figures/sampling_area_plot.pdf"),
+  plot = sampling_area_plot,
+  width = 7,
+  height = 7,
+  units = "in",
+  dpi = 600
+)
+
+ggsave(
+  here("man", "figures/sampling_area_plot.png"),
+  plot = sampling_area_plot,
+  width = 8,
+  height = 8,
+  units = "in",
+  dpi = 600
+)
+```
