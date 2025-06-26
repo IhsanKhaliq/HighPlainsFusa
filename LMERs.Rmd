@@ -508,7 +508,7 @@ dev.off()
 ### Import data
 
 ```{r}
-dat_aerial <- read_excel("pathogenicity_trial_dat_fusarium.xlsx", sheet = 3) %>%
+dat_aerial <- read_excel("data/pathogenicity_trial_dat_fusarium.xlsx", sheet = 3) %>%
   mutate(block = as.factor(block)) %>%
   mutate(severity = as.integer(severity)) %>%
   mutate(species = case_when(

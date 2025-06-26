@@ -83,7 +83,7 @@ set.seed(42)
 ## Import cotton pathogenecity trial data
 
 ```{r}
-dat_cotton <- read_excel("pathogenicity_trial_dat_fusarium.xlsx", sheet = 1) %>%
+dat_cotton <- read_excel("data/pathogenicity_trial_dat_fusarium.xlsx", sheet = 1) %>%
   mutate(crop = "cotton") %>%
   mutate(block = as.factor(block)) %>%
   mutate(root_severity_cotton = as.integer(root_severity_cotton)) %>%
@@ -128,7 +128,7 @@ dat_cotton <- read_excel("pathogenicity_trial_dat_fusarium.xlsx", sheet = 1) %>%
 ## Import corn pathogenicty data
 
 ```{r}
-dat_corn <- read_excel("pathogenicity_trial_dat_fusarium.xlsx", sheet = 2) %>%
+dat_corn <- read_excel("data/pathogenicity_trial_dat_fusarium.xlsx", sheet = 2) %>%
   mutate(crop = "corn") %>%
   mutate(block = as.factor(block)) %>%
   mutate(root_severity_corn = as.integer(root_severity_corn)) %>%
@@ -294,7 +294,7 @@ ggsave(
 ### Donut-chart
 
 ```{r}
-dat_pie <- read_excel("survey_dat.xlsx", sheet = 1) %>%
+dat_pie <- read_excel("data/survey_dat.xlsx", sheet = 1) %>%
   mutate(species = as.factor(species), count = as.integer(count))
 
 
@@ -407,7 +407,7 @@ device = cairo_ps
 
 ```{r}
 # Import survey data
-survey_dat <- read_excel("survey_dat.xlsx", sheet = 3) %>%
+survey_dat <- read_excel("data/survey_dat.xlsx", sheet = 3) %>%
     mutate(
     lat = as.numeric(sapply(strsplit(as.character(lat_long), ","), `[`, 1)),
     long = as.numeric(sapply(strsplit(as.character(lat_long), ","), `[`, 2))
