@@ -1,0 +1,17 @@
+@software{ihsankhaliq_2025_15792694,
+  author = c(person("Ihsanul", "Khaliq"),
+                    person("Nolan", "Anderson")),
+  title        = {Uncovering Fusarium species diversity, distribution and pathogenicity associated with cotton and corn fields in recently expanded cotton-growing areas of the Northern High Plains of Texas },
+  month        = jul,
+  year         = 2025,
+  version      = {0.1.0},
+  doi          = {10.5281/zenodo.15792694},
+  url          = {https://doi.org/10.5281/zenodo.15792694},
+  swhid        = {swh:1:dir:c9688bb2004e9c83414665bee6189ce769a8b7ab
+                   ;origin=https://doi.org/10.5281/zenodo.15792693;vi
+                   sit=swh:1:snp:bcd22bbdd1277882fd3707356c96af6c0f91
+                   3d28;anchor=swh:1:rel:abf1a38c50b9bffd32f69a992756
+                   a1260c0527ba;path=IhsanKhaliq-
+                   HighPlainsFusa-9871416
+                  },
+}
