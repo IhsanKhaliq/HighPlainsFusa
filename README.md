@@ -2,7 +2,8 @@
 # Uncovering *Fusarium* species diversity, distribution and pathogenicity associated with cotton and corn fields in recently expanded cotton-growing areas of the Northern High Plains of Texas 
 
 <!-- badges: start -->
-[![Lifecycle: stable](https://img.shields.io/badge/lifecycle-stable-brightgreen.svg)](https://www.tidyverse.org/lifecycle/#stable) 
+[![Lifecycle: stable](https://img.shields.io/badge/lifecycle-stable-brightgreen.svg)](https://www.tidyverse.org/lifecycle/#stable)
+[![DOI](https://zenodo.org/badge/999876526.svg)](https://doi.org/10.5281/zenodo.15792693)
 <!-- badges: end -->
 
 The goal of this project is to determine the diversity, distribution and pathogenecity of *Fusarium* species in the Northern High Plains of Texas.
