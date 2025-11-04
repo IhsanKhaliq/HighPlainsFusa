@@ -1,0 +1,184 @@
+---
+title: "Kruskal Wallis Test"
+output: html_document
+date: "2025-10-07"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r setup, include=FALSE}
+library("grDevices")
+library("tidyverse")
+library("viridis")
+library("showtext")
+library("here")
+library("ggpubr")
+library("extrafont")
+library("kableExtra")
+library("tidyr")
+library("lubridate")
+library("readxl")
+library("ggstatsplot")
+library("multcompView")
+library("ggthemes")
+library("emmeans")
+library("multcomp")
+library("car")
+library("DHARMa")
+library("lmerTest")
+library("grid")
+library("patchwork")
+library("gridExtra")
+library("agricolae")
+```
+
+
+## Set seed for reproducibility
+
+```{r}
+set.seed(42)
+```
+
+
+## Import cotton pathogenecity trial data
+
+```{r}
+dat_cotton <- read_excel("data/pathogenicity_trial_dat_fusarium.xlsx", sheet = 1) %>%
+  mutate(crop = "cotton") %>%
+  mutate(block = as.factor(block)) %>%
+  mutate(root_severity_cotton = as.integer(root_severity_cotton)) %>%
+  mutate(species = case_when(
+        crop == "cotton" & isolate_code == "F1" ~ "italic('F. incarnatum')",
+        crop == "cotton" & isolate_code == "F16" ~ "italic('F. proliferatum')",
+        crop == "cotton" & isolate_code == "F27" ~ "italic('F. clavum')",
+        crop == "cotton" & isolate_code == "F30" ~ "italic('F. solani')",
+        crop == "cotton" & isolate_code == "F39" ~ "italic('F. flocciferum')",
+        crop == "cotton" & isolate_code == "F40" ~ "italic('F. equiseti')",
+        crop == "cotton" & isolate_code == "F42" ~ "italic('F. verticillioides')",
+      TRUE ~ "Control"
+    )) %>%
+    rename(root_severity = root_severity_cotton) %>%
+   relocate(species, .after = isolate_code) %>%
+    mutate_if(is.character, as.factor) 
+```
+
+
+## Import corn pathogenicty data
+
+```{r}
+dat_corn <- read_excel("data/pathogenicity_trial_dat_fusarium.xlsx", sheet = 2) %>%
+  mutate(crop = "corn") %>%
+  mutate(block = as.factor(block)) %>%
+  mutate(root_severity_corn = as.integer(root_severity_corn)) %>%
+mutate(species = case_when(
+    crop == "corn" & isolate_code == "F1" ~ "italic('F. incarnatum')",
+    crop == "corn" & isolate_code == "F16" ~ "italic('F. proliferatum')",
+    crop == "corn" & isolate_code == "F27" ~ "italic('F. clavum')",
+    crop == "corn" & isolate_code == "F30" ~ "italic('F. solani')",
+    crop == "corn" & isolate_code == "F39" ~ "italic('F. flocciferum')",
+    crop == "corn" & isolate_code == "F40" ~ "italic('F. equiseti')",
+    crop == "corn" & isolate_code == "F42" ~ "italic('F. verticillioides')",
+    TRUE ~ "Control"
+  )) %>%
+    relocate(species, .after = isolate_code) %>%
+  rename(root_severity = root_severity_corn) %>%
+    mutate_if(is.character, as.factor)
+```
+
+
+## Cobmine data
+
+```{r}
+dat_all <- bind_rows(dat_cotton, dat_corn) 
+```
+
+
+
+## Kruskal Wallis test for cotton data
+
+```{r}
+kruskal.test(root_severity ~ species, data = dat_cotton)
+```
+
+Lower p value warrants a post hoc test.
+
+
+## Post hoc test
+
+
+```{r}
+fig_kw_cotton <- ggbetweenstats(data = dat_cotton, x=species, y=root_severity, type="np", xlab = "", ylab = "Disease severity", p.adjust.method = "fdr", package = "ggsci", palette = "default_jco") +
+     scale_x_discrete(labels = function(x) parse(text = x)) +
+    theme_pubclean(base_size = 15, base_family = "Arial") +
+  theme(legend.position = "none")
+
+fig_kw_cotton
+```
+
+
+## Kruskal Wallis test for corn data
+
+```{r}
+kruskal.test(root_severity ~ species, data = dat_corn)
+```
+
+Lower p value warrants a post hoc test.
+
+
+## Post hoc test
+
+
+```{r}
+fig_kw_corn <- ggbetweenstats(data = dat_corn, x=species, y=root_severity, type="np", xlab = expression(italic("Fusarium") ~ "species"), ylab = "Disease severity", p.adjust.method = "fdr", package = "ggsci", palette = "default_jco") +
+     scale_x_discrete(labels = function(x) parse(text = x)) +
+   theme_pubclean(base_size = 15, base_family = "Arial") +
+    theme(legend.position = "none")
+
+fig_kw_corn
+```
+
+
+## Combined plot
+
+```{r}
+Fig_kw <- fig_kw_cotton + fig_kw_corn+
+    plot_layout(ncol = 1) +
+    plot_annotation(tag_levels = 'A') &
+    theme(plot.tag = element_text(
+        size = 15,
+        face = "bold",
+        family = "Arial"
+    ))
+
+Fig_kw 
+```
+
+
+```{r}
+ggsave(
+    here("man", "figures/Fig_kw.png"),
+    plot = Fig_kw, 
+    width = 10,
+    height = 10,
+    units = "in",
+    dpi = 600
+)
+
+ggsave(
+  here("man", "figures/Fig_kw.eps"),
+  plot = Fig_kw, 
+  width = 10,
+  height = 10,
+  units = "in",
+  dpi = 600,
+  device = cairo_ps
+)
+
+```
+
+
+
